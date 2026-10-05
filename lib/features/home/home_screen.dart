@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:vwc_app/models/post.dart';
 import 'package:vwc_app/features/documents_signings/document_signing_screen.dart';
 import 'package:vwc_app/features/notifications/notifications_screen.dart';
@@ -23,6 +24,13 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final int _notificationCount = 1;
   final String _vwcLearnUrl = 'https://vwc-website-omega.vercel.app/';
+
+  @override
+  void initState() {
+    super.initState();
+    // Start listening to the posts stream in real-time as soon as home screen loads
+    PostRepository.getPostsStream().listen((_) {});
+  }
 
   Future<void> _openLink(String urlString) async {
     final Uri url = Uri.parse(
@@ -66,21 +74,19 @@ class _HomeScreenState extends State<HomeScreen> {
             style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF8B1E24)),
             onPressed: () async {
-              // 1. Clear the persistent login states so it doesn't auto-login again
               final prefs = await SharedPreferences.getInstance();
               await prefs.setBool('admin_logged_in', false);
               await prefs.setBool('worker_logged_in', false);
 
               if (!context.mounted) return;
-              Navigator.pop(context); // Close dialog
+              Navigator.pop(context);
 
-              // 2. Clears the back stack and returns to PasscodeScreen
               Navigator.pushAndRemoveUntil(
                 context,
                 MaterialPageRoute(
                   builder: (context) => const PasscodeScreen(),
                 ),
-                    (route) => false, // Clears navigation history
+                    (route) => false,
               );
             },
             child: const Text('Log Out', style: TextStyle(color: Colors.white)),
@@ -151,7 +157,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
             ],
           ),
-          // Log Out Button in AppBar
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'Log Out',
@@ -164,7 +169,6 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Welcome Header
             const Text(
               'Welcome to VWC',
               style: TextStyle(
@@ -258,6 +262,11 @@ class _HomeScreenState extends State<HomeScreen> {
                           );
 
                           try {
+                            // Safely ensure Firebase is initialized before query
+                            if (Firebase.apps.isEmpty) {
+                              await Firebase.initializeApp();
+                            }
+
                             final snapshot = await FirebaseFirestore.instance
                                 .collection('contracts')
                                 .limit(1)
@@ -301,7 +310,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             }
                           } catch (e) {
                             if (!context.mounted) return;
-                            Navigator.pop(context); // Dismiss loading dialog
+                            Navigator.pop(context);
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
                                   content: Text('Error loading contract: $e')),
@@ -355,7 +364,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 25),
 
-            // Dynamic Company Posts & Guidelines Feed
+            // Dynamic Company Posts & Guidelines Feed (Workers, Managers, Pictures)
             const Text(
               'Company Posts & Guidelines',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
@@ -500,7 +509,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                       Icon(Icons.image,
                                           color: Colors.grey),
                                       SizedBox(width: 8),
-                                      Text('Image Saved Off-Device',
+                                      Text('Image Loaded',
                                           style: TextStyle(
                                               color: Colors.grey)),
                                     ],
