@@ -3,22 +3,24 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:vwc_app/features/auth/passcode_screen.dart';
 import 'package:vwc_app/features/signing/signer_details_screen.dart';
 
-// If you have firebase_options.dart, make sure it's imported:
+// If you have generated firebase_options.dart via FlutterFire CLI, uncomment below:
 // import 'firebase_options.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Ensure we don't crash or hang if already initialized
+  // Ensure Firebase is initialized safely without duplicate app crashes
   if (Firebase.apps.isEmpty) {
     try {
       await Firebase.initializeApp(
-        // If you generated firebase_options.dart, uncomment below:
+        // Uncomment if using firebase_options.dart:
         // options: DefaultFirebaseOptions.currentPlatform,
       );
     } catch (e) {
-      debugPrint('Firebase init error: $e');
+      debugPrint('Firebase initialization error: $e');
     }
+  } else {
+    Firebase.app(); // Use existing default app instance
   }
 
   runApp(const VwcApp());
@@ -44,7 +46,7 @@ class VwcApp extends StatelessWidget {
           final uri = Uri.base;
           if (uri.path.contains('/sign') || uri.fragment.contains('/sign')) {
             routeName = uri.path.contains('/sign')
-                ? uri.path + (uri.query.isNotEmpty ? '?' + uri.query : '')
+                ? uri.path + (uri.query.isNotEmpty ? '?${uri.query}' : '')
                 : uri.fragment;
           }
         }
