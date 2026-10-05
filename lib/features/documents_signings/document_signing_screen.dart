@@ -58,17 +58,19 @@ class _DocumentSigningScreenState extends State<DocumentSigningScreen> {
           .get();
 
       if (doc.exists && doc.data() != null) {
-        final data = doc.data() as Map<String, dynamic>;
+        final data = doc.data() as Map<String, dynamic>? ?? {};
 
         List<dynamic> rawFields = [];
-        if (data.containsKey('taggedFields')) {
+        if (data.containsKey('taggedFields') && data['taggedFields'] is List) {
           rawFields = data['taggedFields'];
-        } else if (data.containsKey('fields')) {
+        } else if (data.containsKey('fields') && data['fields'] is List) {
           rawFields = data['fields'];
         }
 
         setState(() {
-          _taggedFields = rawFields.map((f) => Map<String, dynamic>.from(f)).toList();
+          _taggedFields = rawFields
+              .map((f) => f is Map ? Map<String, dynamic>.from(f) : <String, dynamic>{})
+              .toList();
         });
       }
     } catch (e) {
@@ -121,6 +123,7 @@ class _DocumentSigningScreenState extends State<DocumentSigningScreen> {
 
   void _nextPage() {
     if (!_isCurrentPageComplete()) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please complete all required fields and signatures on this page before proceeding.'),
@@ -130,7 +133,7 @@ class _DocumentSigningScreenState extends State<DocumentSigningScreen> {
       return;
     }
 
-    if (_currentPageIndex < widget.pageUrls.length - 1) {
+    if (widget.pageUrls.isNotEmpty && _currentPageIndex < widget.pageUrls.length - 1) {
       setState(() {
         _currentPageIndex++;
       });
@@ -149,6 +152,7 @@ class _DocumentSigningScreenState extends State<DocumentSigningScreen> {
 
   Future<void> _submitContract() async {
     if (!_isCurrentPageComplete()) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please complete all required fields and signatures on this page before proceeding.'),
@@ -171,8 +175,8 @@ class _DocumentSigningScreenState extends State<DocumentSigningScreen> {
         'docId': widget.docId,
         'docTitle': widget.docTitle,
         'company': widget.company,
-        'signerName': widget.signerName,
-        'signerEmail': widget.signerEmail,
+        'signerName': widget.signerName.isNotEmpty ? widget.signerName : 'Worker',
+        'signerEmail': widget.signerEmail.isNotEmpty ? widget.signerEmail : 'worker@vwc.com',
         'selectedLanguage': widget.selectedLanguage,
         'status': 'Completed',
         'signedAt': FieldValue.serverTimestamp(),
@@ -198,6 +202,7 @@ class _DocumentSigningScreenState extends State<DocumentSigningScreen> {
         ),
       );
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error submitting contract: $e'), backgroundColor: Colors.red),
       );
@@ -232,6 +237,7 @@ class _DocumentSigningScreenState extends State<DocumentSigningScreen> {
 
     final imageUrl = widget.pageUrls[_currentPageIndex];
     final isLastPage = _currentPageIndex == widget.pageUrls.length - 1;
+    final safeSignerName = widget.signerName.isNotEmpty ? widget.signerName : 'Worker';
 
     return Scaffold(
       backgroundColor: Colors.grey[200],
@@ -283,13 +289,13 @@ class _DocumentSigningScreenState extends State<DocumentSigningScreen> {
                           for (int i = 0; i < _taggedFields.length; i++)
                             if ((_taggedFields[i]['page'] ?? 0) == _currentPageIndex)
                               Positioned(
-                                left: (_taggedFields[i]['x'] ?? 0.1) * constraints.maxWidth,
-                                top: (_taggedFields[i]['y'] ?? 0.1) * constraints.maxHeight,
+                                left: ((_taggedFields[i]['x'] ?? 0.1) as num).toDouble() * constraints.maxWidth,
+                                top: ((_taggedFields[i]['y'] ?? 0.1) as num).toDouble() * constraints.maxHeight,
                                 child: SizedBox(
                                   width: 160,
                                   child: (_taggedFields[i]['type'] ?? 'text') == 'text'
                                       ? TextField(
-                                    controller: _getTextController(i, i == 0 ? widget.signerName : ''),
+                                    controller: _getTextController(i, i == 0 ? safeSignerName : ''),
                                     onChanged: (val) => setState(() {}),
                                     decoration: InputDecoration(
                                       hintText: 'Type here...',
