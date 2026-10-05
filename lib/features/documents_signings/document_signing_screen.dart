@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:signature/signature.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
 
 class DocumentSigningScreen extends StatefulWidget {
   final String docId;
@@ -34,8 +35,9 @@ class _DocumentSigningScreenState extends State<DocumentSigningScreen> {
 
   List<Map<String, dynamic>> _taggedFields = [];
 
-  final Map<int, Map<int, TextEditingController>> _textControllers = {};
-  final Map<int, Map<int, SignatureController>> _signatureControllers = {};
+  // Controllers mapped by absolute field index to prevent page cross-pollution
+  final Map<int, TextEditingController> _textControllers = {};
+  final Map<int, SignatureController> _signatureControllers = {};
 
   @override
   void initState() {
@@ -45,7 +47,16 @@ class _DocumentSigningScreenState extends State<DocumentSigningScreen> {
 
   Future<void> _fetchTaggedFields() async {
     try {
-      DocumentSnapshot doc = await FirebaseFirestore.instance.collection('contracts').doc(widget.docId).get();
+      // Ensure Firebase is ready before querying
+      if (Firebase.apps.isEmpty) {
+        await Firebase.initializeApp();
+      }
+
+      DocumentSnapshot doc = await FirebaseFirestore.instance
+          .collection('contracts')
+          .doc(widget.docId)
+          .get();
+
       if (doc.exists && doc.data() != null) {
         final data = doc.data() as Map<String, dynamic>;
 
@@ -63,43 +74,46 @@ class _DocumentSigningScreenState extends State<DocumentSigningScreen> {
     } catch (e) {
       debugPrint('Error loading tagged fields: $e');
     } finally {
-      setState(() {
-        _isLoadingConfig = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoadingConfig = false;
+        });
+      }
     }
   }
 
-  TextEditingController _getTextController(int fieldIndex, String defaultText) {
-    _textControllers.putIfAbsent(_currentPageIndex, () => {});
-    if (!_textControllers[_currentPageIndex]!.containsKey(fieldIndex)) {
-      _textControllers[_currentPageIndex]![fieldIndex] = TextEditingController(text: defaultText);
+  TextEditingController _getTextController(int absoluteIndex, String defaultText) {
+    if (!_textControllers.containsKey(absoluteIndex)) {
+      _textControllers[absoluteIndex] = TextEditingController(text: defaultText);
     }
-    return _textControllers[_currentPageIndex]![fieldIndex]!;
+    return _textControllers[absoluteIndex]!;
   }
 
-  SignatureController _getSigController(int fieldIndex) {
-    _signatureControllers.putIfAbsent(_currentPageIndex, () => {});
-    if (!_signatureControllers[_currentPageIndex]!.containsKey(fieldIndex)) {
-      _signatureControllers[_currentPageIndex]![fieldIndex] = SignatureController(
+  SignatureController _getSigController(int absoluteIndex) {
+    if (!_signatureControllers.containsKey(absoluteIndex)) {
+      _signatureControllers[absoluteIndex] = SignatureController(
         penStrokeWidth: 3,
         penColor: Colors.black,
         exportBackgroundColor: Colors.transparent,
       );
     }
-    return _signatureControllers[_currentPageIndex]![fieldIndex]!;
+    return _signatureControllers[absoluteIndex]!;
   }
 
   bool _isCurrentPageComplete() {
-    final pageFields = _taggedFields.where((f) => (f['page'] ?? 0) == _currentPageIndex).toList();
-    for (int i = 0; i < pageFields.length; i++) {
-      final field = pageFields[i];
-      final type = field['type'] ?? 'text';
-      if (type == 'text') {
-        final val = _getTextController(i, '').text.trim();
-        if (val.isEmpty) return false;
-      } else if (type == 'signature') {
-        final sigCtrl = _getSigController(i);
-        if (!sigCtrl.isNotEmpty) return false;
+    for (int i = 0; i < _taggedFields.length; i++) {
+      final field = _taggedFields[i];
+      final fieldPage = field['page'] ?? 0;
+
+      if (fieldPage == _currentPageIndex) {
+        final type = field['type'] ?? 'text';
+        if (type == 'text') {
+          final val = _getTextController(i, '').text.trim();
+          if (val.isEmpty) return false;
+        } else if (type == 'signature') {
+          final sigCtrl = _getSigController(i);
+          if (!sigCtrl.isNotEmpty) return false;
+        }
       }
     }
     return true;
@@ -149,6 +163,10 @@ class _DocumentSigningScreenState extends State<DocumentSigningScreen> {
     });
 
     try {
+      if (Firebase.apps.isEmpty) {
+        await Firebase.initializeApp();
+      }
+
       await FirebaseFirestore.instance.collection('signed_contracts').add({
         'docId': widget.docId,
         'docTitle': widget.docTitle,
@@ -194,22 +212,17 @@ class _DocumentSigningScreenState extends State<DocumentSigningScreen> {
 
   @override
   void dispose() {
-    for (var pageMap in _textControllers.values) {
-      for (var c in pageMap.values) {
-        c.dispose();
-      }
+    for (var c in _textControllers.values) {
+      c.dispose();
     }
-    for (var pageMap in _signatureControllers.values) {
-      for (var c in pageMap.values) {
-        c.dispose();
-      }
+    for (var c in _signatureControllers.values) {
+      c.dispose();
     }
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    // Fallback if pageUrls is empty so it doesn't crash
     if (widget.pageUrls.isEmpty) {
       return Scaffold(
         appBar: AppBar(title: Text(widget.docTitle), backgroundColor: const Color(0xFF8B1E24)),
@@ -219,7 +232,6 @@ class _DocumentSigningScreenState extends State<DocumentSigningScreen> {
 
     final imageUrl = widget.pageUrls[_currentPageIndex];
     final isLastPage = _currentPageIndex == widget.pageUrls.length - 1;
-    final pageFields = _taggedFields.where((f) => (f['page'] ?? 0) == _currentPageIndex).toList();
 
     return Scaffold(
       backgroundColor: Colors.grey[200],
@@ -267,60 +279,62 @@ class _DocumentSigningScreenState extends State<DocumentSigningScreen> {
                               ),
                             ),
                           ),
-                          for (int i = 0; i < pageFields.length; i++)
-                            Positioned(
-                              left: (pageFields[i]['x'] ?? 0.1) * constraints.maxWidth,
-                              top: (pageFields[i]['y'] ?? 0.1) * constraints.maxHeight,
-                              child: SizedBox(
-                                width: 160,
-                                child: (pageFields[i]['type'] ?? 'text') == 'text'
-                                    ? TextField(
-                                  controller: _getTextController(i, i == 0 ? widget.signerName : ''),
-                                  onChanged: (val) => setState(() {}),
-                                  decoration: InputDecoration(
-                                    hintText: 'Type here...',
-                                    filled: true,
-                                    fillColor: Colors.yellow.shade100.withOpacity(0.9),
-                                    isDense: true,
-                                    border: const OutlineInputBorder(),
-                                  ),
-                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                                )
-                                    : Container(
-                                  width: 180,
-                                  padding: const EdgeInsets.all(4),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    border: Border.all(color: Colors.red, width: 1.5),
-                                  ),
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Row(
-                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          const Text('Sign here', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
-                                          InkWell(
-                                            onTap: () {
-                                              _getSigController(i).clear();
-                                              setState(() {});
-                                            },
-                                            child: const Text('Clear', style: TextStyle(fontSize: 10, color: Colors.red)),
-                                          ),
-                                        ],
-                                      ),
-                                      SizedBox(
-                                        height: 50,
-                                        child: Signature(
-                                          controller: _getSigController(i),
-                                          backgroundColor: Colors.grey.shade50,
+                          // Render only fields belonging to the current page using absolute global index i
+                          for (int i = 0; i < _taggedFields.length; i++)
+                            if ((_taggedFields[i]['page'] ?? 0) == _currentPageIndex)
+                              Positioned(
+                                left: (_taggedFields[i]['x'] ?? 0.1) * constraints.maxWidth,
+                                top: (_taggedFields[i]['y'] ?? 0.1) * constraints.maxHeight,
+                                child: SizedBox(
+                                  width: 160,
+                                  child: (_taggedFields[i]['type'] ?? 'text') == 'text'
+                                      ? TextField(
+                                    controller: _getTextController(i, i == 0 ? widget.signerName : ''),
+                                    onChanged: (val) => setState(() {}),
+                                    decoration: InputDecoration(
+                                      hintText: 'Type here...',
+                                      filled: true,
+                                      fillColor: Colors.yellow.shade100.withOpacity(0.9),
+                                      isDense: true,
+                                      border: const OutlineInputBorder(),
+                                    ),
+                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                                  )
+                                      : Container(
+                                    width: 180,
+                                    padding: const EdgeInsets.all(4),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      border: Border.all(color: Colors.red, width: 1.5),
+                                    ),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Row(
+                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            const Text('Sign here', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+                                            InkWell(
+                                              onTap: () {
+                                                _getSigController(i).clear();
+                                                setState(() {});
+                                              },
+                                              child: const Text('Clear', style: TextStyle(fontSize: 10, color: Colors.red)),
+                                            ),
+                                          ],
                                         ),
-                                      ),
-                                    ],
+                                        SizedBox(
+                                          height: 50,
+                                          child: Signature(
+                                            controller: _getSigController(i),
+                                            backgroundColor: Colors.grey.shade50,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
                         ],
                       );
                     },
