@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vwc_app/features/admin/admin_upload_screen.dart';
 import 'package:vwc_app/features/admin/admin_post_screen.dart';
 import 'package:vwc_app/features/admin/admin_manage_posts_screen.dart';
 import 'package:vwc_app/features/worker_id/worker_id_screen.dart';
-import 'package:vwc_app/features/auth/passcode_screen.dart'; // <-- Connected to your existing passcode screen!
+import 'package:vwc_app/features/auth/passcode_screen.dart';
 
 class AdminDashboardScreen extends StatelessWidget {
   const AdminDashboardScreen({super.key});
@@ -25,10 +26,16 @@ class AdminDashboardScreen extends StatelessWidget {
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF8B1E24),
             ),
-            onPressed: () {
+            onPressed: () async {
+              // 1. Clear both login states from SharedPreferences
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool('admin_logged_in', false);
+              await prefs.setBool('worker_logged_in', false);
+
+              if (!context.mounted) return;
               Navigator.pop(context); // Close the dialog box
 
-              // Clears the navigation stack and sends them back to the PasscodeScreen
+              // 2. Clears the navigation stack and sends them back to the PasscodeScreen
               Navigator.pushAndRemoveUntil(
                 context,
                 MaterialPageRoute(

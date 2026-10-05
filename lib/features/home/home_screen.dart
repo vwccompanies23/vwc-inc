@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:vwc_app/models/post.dart';
@@ -64,10 +65,16 @@ class _HomeScreenState extends State<HomeScreen> {
           ElevatedButton(
             style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF8B1E24)),
-            onPressed: () {
+            onPressed: () async {
+              // 1. Clear the persistent login states so it doesn't auto-login again
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool('admin_logged_in', false);
+              await prefs.setBool('worker_logged_in', false);
+
+              if (!context.mounted) return;
               Navigator.pop(context); // Close dialog
 
-              // Clears the back stack and returns to PasscodeScreen
+              // 2. Clears the back stack and returns to PasscodeScreen
               Navigator.pushAndRemoveUntil(
                 context,
                 MaterialPageRoute(
