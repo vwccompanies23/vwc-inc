@@ -28,8 +28,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    // Start listening to the posts stream in real-time as soon as home screen loads
-    PostRepository.getPostsStream().listen((_) {});
+    // PostRepository updates automatically via its ValueNotifier
   }
 
   Future<void> _openLink(String urlString) async {
