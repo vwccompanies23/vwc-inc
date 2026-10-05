@@ -1,6 +1,5 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:vwc_app/services/cloudinary_service.dart';
 
 class ContractDocument {
@@ -24,74 +23,89 @@ class ContractDocument {
     DateTime? createdAt,
   }) : createdAt = createdAt ?? DateTime.now();
 
-  Map<String, dynamic> toJson() => {
-    'id': id,
+  Map<String, dynamic> toMap() => {
     'title': title,
     'companyName': companyName,
     'description': description,
     'contractUrl': contractUrl,
     'publicId': publicId,
     'resourceType': resourceType,
-    'createdAt': createdAt.toIso8601String(),
+    'createdAt': Timestamp.fromDate(createdAt),
   };
 
-  factory ContractDocument.fromJson(Map<String, dynamic> json) => ContractDocument(
-    id: json['id'] ?? '',
-    title: json['title'] ?? '',
-    companyName: json['companyName'] ?? 'VWC Operations',
-    description: json['description'] ?? 'Please review and complete the signing process below.',
-    contractUrl: json['contractUrl'] ?? '',
-    publicId: json['publicId'] ?? '',
-    resourceType: json['resourceType'] ?? 'raw',
-    createdAt: json['createdAt'] != null
-        ? DateTime.parse(json['createdAt'])
-        : DateTime.now(),
-  );
+  factory ContractDocument.fromFirestore(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    return ContractDocument(
+      id: doc.id,
+      title: data['title'] ?? '',
+      companyName: data['companyName'] ?? 'VWC Operations',
+      description: data['description'] ?? 'Please review and complete the signing process below.',
+      contractUrl: data['contractUrl'] ?? '',
+      publicId: data['publicId'] ?? '',
+      resourceType: data['resourceType'] ?? 'raw',
+      createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+    );
+  }
 }
 
 // Typedef alias in case any file references "Contract" instead of "ContractDocument"
 typedef Contract = ContractDocument;
 
 class ContractRepository {
-  static const String _storageKey = 'saved_contracts';
+  static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  static final CollectionReference _contractsRef = _firestore.collection('contracts');
+
   static final ValueNotifier<List<ContractDocument>> contractsNotifier =
   ValueNotifier<List<ContractDocument>>([]);
 
+  /// Loads contracts from Firestore and listens for real-time updates across all devices
   static Future<void> loadContracts() async {
-    final prefs = await SharedPreferences.getInstance();
-    final String? jsonString = prefs.getString(_storageKey);
-    if (jsonString != null && jsonString.isNotEmpty) {
-      final List<dynamic> decoded = jsonDecode(jsonString);
-      contractsNotifier.value =
-          decoded.map((item) => ContractDocument.fromJson(item)).toList();
+    try {
+      _contractsRef.orderBy('createdAt', descending: true).snapshots().listen((snapshot) {
+        final List<ContractDocument> loadedContracts = snapshot.docs
+            .map((doc) => ContractDocument.fromFirestore(doc))
+            .toList();
+        contractsNotifier.value = loadedContracts;
+      }, onError: (e) {
+        debugPrint('Error listening to Firestore contracts stream: $e');
+      });
+    } catch (e) {
+      debugPrint('Error loading contracts from Firestore: $e');
     }
   }
 
-  static Future<void> _saveToStorage() async {
-    final prefs = await SharedPreferences.getInstance();
-    final encoded = jsonEncode(
-        contractsNotifier.value.map((c) => c.toJson()).toList());
-    await prefs.setString(_storageKey, encoded);
-  }
-
+  /// Adds a new contract document directly to Firestore
   static Future<void> addContract(ContractDocument contract) async {
-    contractsNotifier.value = [contract, ...contractsNotifier.value];
-    await _saveToStorage();
+    try {
+      await _contractsRef.add(contract.toMap());
+    } catch (e) {
+      debugPrint('Error adding contract to Firestore: $e');
+      rethrow;
+    }
   }
 
+  /// Deletes a contract permanently from Cloudinary and Firestore
   static Future<bool> deleteContract(ContractDocument contract) async {
-    // 1. Delete from Cloudinary
-    final deletedFromCloud = await CloudinaryService.deleteContract(
-      contract.publicId,
-      contract.resourceType,
-    );
+    try {
+      // 1. Permanently delete file from Cloudinary storage
+      final deletedFromCloud = await CloudinaryService.deleteContract(
+        contract.publicId,
+        contract.resourceType,
+      );
 
-    // 2. Remove locally
-    final updatedList = List<ContractDocument>.from(contractsNotifier.value)
-      ..removeWhere((c) => c.id == contract.id);
-    contractsNotifier.value = updatedList;
-    await _saveToStorage();
+      // 2. Permanently delete metadata document from Firestore
+      await _contractsRef.doc(contract.id).delete();
 
-    return deletedFromCloud;
+      // 3. Update local notifier state immediately
+      final updatedList = List<ContractDocument>.from(contractsNotifier.value)
+        ..removeWhere((c) => c.id == contract.id);
+      contractsNotifier.value = updatedList;
+
+      debugPrint('Contract ${contract.id} permanently removed from Firestore and Cloudinary.');
+      return deletedFromCloud;
+    } catch (e) {
+      debugPrint('Error deleting contract: $e');
+      return false;
+    }
   }
 }

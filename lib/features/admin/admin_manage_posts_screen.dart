@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:vwc_app/models/post.dart';
@@ -44,19 +43,32 @@ class _AdminManagePostsScreenState extends State<AdminManagePostsScreen> {
                 backgroundColor: Colors.red,
                 foregroundColor: Colors.white,
               ),
-              onPressed: () {
-                // Remove the post from the shared repository
-                final updatedList = List<Post>.from(PostRepository.postsNotifier.value)
-                  ..removeWhere((p) => p.id == post.id);
-                PostRepository.postsNotifier.value = updatedList;
-
+              onPressed: () async {
+                // Close the confirm dialog first
                 Navigator.of(dialogContext).pop();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Post deleted successfully.'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
+
+                try {
+                  // Permanently delete from Firestore database
+                  await PostRepository.deletePost(post.id);
+
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Post deleted successfully from Firestore.'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Failed to delete post: $e'),
+                        backgroundColor: Colors.black,
+                      ),
+                    );
+                  }
+                }
               },
               child: const Text('Delete'),
             ),
@@ -182,24 +194,18 @@ class _AdminManagePostsScreenState extends State<AdminManagePostsScreen> {
                               ),
                             ),
                           )
-                              : Image.file(
-                            File(post.imagePath!),
-                            width: double.infinity,
-                            height: 200,
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) => Container(
-                              height: 100,
-                              color: Colors.grey.shade200,
-                              alignment: Alignment.center,
-                              child: const Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.image, color: Colors.grey),
-                                  SizedBox(width: 8),
-                                  Text('Attached Image Saved',
-                                      style: TextStyle(color: Colors.grey)),
-                                ],
-                              ),
+                              : Container(
+                            height: 100,
+                            color: Colors.grey.shade200,
+                            alignment: Alignment.center,
+                            child: const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.image, color: Colors.grey),
+                                SizedBox(width: 8),
+                                Text('Attached Image Saved',
+                                    style: TextStyle(color: Colors.grey)),
+                              ],
                             ),
                           ),
                         ),

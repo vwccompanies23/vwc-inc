@@ -1,13 +1,16 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:vwc_app/models/post.dart';
 import 'package:vwc_app/features/documents_signings/document_signing_screen.dart';
 import 'package:vwc_app/features/notifications/notifications_screen.dart';
 import 'package:vwc_app/features/worker_id/my_worker_id_screen.dart';
 import 'package:vwc_app/features/settings/terms_of_service_screen.dart';
 import 'package:vwc_app/features/scanner/document_scanner_screen.dart';
+import 'package:vwc_app/features/auth/passcode_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -18,7 +21,6 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final int _notificationCount = 1;
-
   final String _vwcLearnUrl = 'https://vwc-website-omega.vercel.app/';
 
   Future<void> _openLink(String urlString) async {
@@ -43,6 +45,40 @@ class _HomeScreenState extends State<HomeScreen> {
       const SnackBar(
         content: Text('Link and content copied to clipboard!'),
         duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _confirmLogout(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Log Out'),
+        content: const Text(
+            'Are you sure you want to log out? You will need to enter the passcode again to re-enter.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF8B1E24)),
+            onPressed: () {
+              Navigator.pop(context); // Close dialog
+
+              // Clears the back stack and returns to PasscodeScreen
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const PasscodeScreen(),
+                ),
+                    (route) => false, // Clears navigation history
+              );
+            },
+            child: const Text('Log Out', style: TextStyle(color: Colors.white)),
+          ),
+        ],
       ),
     );
   }
@@ -108,6 +144,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
             ],
           ),
+          // Log Out Button in AppBar
+          IconButton(
+            icon: const Icon(Icons.logout),
+            tooltip: 'Log Out',
+            onPressed: () => _confirmLogout(context),
+          ),
         ],
       ),
       body: SingleChildScrollView(
@@ -150,15 +192,14 @@ class _HomeScreenState extends State<HomeScreen> {
                     )
                   ],
                 ),
-                child: Row(
+                child: const Row(
                   children: [
-                    const Icon(Icons.info_outline,
-                        color: Colors.white, size: 36),
-                    const SizedBox(width: 12),
+                    Icon(Icons.info_outline, color: Colors.white, size: 36),
+                    SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
-                        children: const [
+                        children: [
                           Text(
                             'Learn About VWC',
                             style: TextStyle(
@@ -176,7 +217,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ],
                       ),
                     ),
-                    const Icon(Icons.open_in_new, color: Colors.white),
+                    Icon(Icons.open_in_new, color: Colors.white),
                   ],
                 ),
               ),
@@ -199,13 +240,66 @@ class _HomeScreenState extends State<HomeScreen> {
                         title: 'Sign Contracts',
                         icon: Icons.assignment_turned_in,
                         color: const Color(0xFF8B1E24),
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const DocumentSigningScreen(),
+                        onTap: () async {
+                          showDialog(
+                            context: context,
+                            barrierDismissible: false,
+                            builder: (context) => const Center(
+                              child: CircularProgressIndicator(
+                                  color: Color(0xFF8B1E24)),
                             ),
                           );
+
+                          try {
+                            final snapshot = await FirebaseFirestore.instance
+                                .collection('contracts')
+                                .limit(1)
+                                .get();
+
+                            if (!context.mounted) return;
+                            Navigator.pop(context); // Dismiss loading dialog
+
+                            if (snapshot.docs.isNotEmpty) {
+                              final docData = snapshot.docs.first.data();
+                              final docId = snapshot.docs.first.id;
+
+                              if (!context.mounted) return;
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => DocumentSigningScreen(
+                                    docId: docId,
+                                    docTitle:
+                                    docData['title'] ?? 'Company Contract',
+                                    company: docData['company'] ?? 'VWC',
+                                    pageUrls: List<String>.from(
+                                        docData['pageUrls'] ?? []),
+                                    signerName:
+                                    docData['signerName'] ?? 'Worker',
+                                    signerEmail: docData['signerEmail'] ??
+                                        'worker@vwc.com',
+                                    selectedLanguage:
+                                    docData['selectedLanguage'] ??
+                                        'English',
+                                  ),
+                                ),
+                              );
+                            } else {
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                    content: Text(
+                                        'No pending contracts found to sign.')),
+                              );
+                            }
+                          } catch (e) {
+                            if (!context.mounted) return;
+                            Navigator.pop(context); // Dismiss loading dialog
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                  content: Text('Error loading contract: $e')),
+                            );
+                          }
                         },
                       ),
                     ),
@@ -241,7 +335,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (context) => const DocumentScannerScreen(),
+                              builder: (context) =>
+                              const DocumentScannerScreen(),
                             ),
                           );
                         },
@@ -260,7 +355,6 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 12),
 
-            // Listens dynamically to PostRepository changes
             ValueListenableBuilder<List<Post>>(
               valueListenable: PostRepository.postsNotifier,
               builder: (context, posts, child) {
@@ -352,7 +446,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                       height: 200,
                                       color: Colors.grey.shade100,
                                       child: const Center(
-                                        child: CircularProgressIndicator(),
+                                        child:
+                                        CircularProgressIndicator(),
                                       ),
                                     );
                                   },
@@ -368,7 +463,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                         ),
                                       ),
                                 )
-                                    : (File(post.imagePath!).existsSync()
+                                    : (!kIsWeb &&
+                                    File(post.imagePath!).existsSync()
                                     ? Image.file(
                                   File(post.imagePath!),
                                   width: double.infinity,
@@ -463,7 +559,6 @@ class _HomeScreenState extends State<HomeScreen> {
               },
             ),
 
-            // Footer Terms of Service Link
             const SizedBox(height: 20),
             Center(
               child: TextButton(
@@ -477,7 +572,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: const Text(
                   'Terms of Service & Privacy Policy',
                   style: TextStyle(
-                      color: Colors.grey, decoration: TextDecoration.underline),
+                      color: Colors.grey,
+                      decoration: TextDecoration.underline),
                 ),
               ),
             ),

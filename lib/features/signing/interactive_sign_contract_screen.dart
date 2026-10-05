@@ -3,16 +3,21 @@ import 'package:flutter/material.dart';
 import 'package:signature/signature.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-class DocumentSigningScreen extends StatefulWidget {
+class InteractiveSignContractScreen extends StatefulWidget {
   final String docId;
   final String docTitle;
   final String company;
   final List<String> pageUrls;
   final String signerName;
   final String signerEmail;
+  final String signerAge;
+  final String signerYear;
+  final String signerMonthDate;
+  final String signerCountry;
+  final String signerAddress;
   final String selectedLanguage;
 
-  const DocumentSigningScreen({
+  const InteractiveSignContractScreen({
     super.key,
     required this.docId,
     required this.docTitle,
@@ -20,14 +25,19 @@ class DocumentSigningScreen extends StatefulWidget {
     required this.pageUrls,
     required this.signerName,
     required this.signerEmail,
+    required this.signerAge,
+    required this.signerYear,
+    required this.signerMonthDate,
+    required this.signerCountry,
+    required this.signerAddress,
     required this.selectedLanguage,
   });
 
   @override
-  State<DocumentSigningScreen> createState() => _DocumentSigningScreenState();
+  State<InteractiveSignContractScreen> createState() => _InteractiveSignContractScreenState();
 }
 
-class _DocumentSigningScreenState extends State<DocumentSigningScreen> {
+class _InteractiveSignContractScreenState extends State<InteractiveSignContractScreen> {
   int _currentPageIndex = 0;
   bool _isSubmitting = false;
   bool _isLoadingConfig = true;
@@ -36,6 +46,56 @@ class _DocumentSigningScreenState extends State<DocumentSigningScreen> {
 
   final Map<int, Map<int, TextEditingController>> _textControllers = {};
   final Map<int, Map<int, SignatureController>> _signatureControllers = {};
+
+  final Map<String, Map<String, String>> _localizedText = {
+    'English': {
+      'pageIndicator': 'Page',
+      'of': 'of',
+      'textHint': 'Type here...',
+      'signatureTitle': 'Sign here',
+      'clearButton': 'Clear',
+      'prevButton': 'Previous',
+      'nextButton': 'Next',
+      'submitButton': 'SUBMIT CONTRACT',
+      'errIncomplete': 'Please complete all required fields and signatures on this page before proceeding.',
+      'successTitle': 'Contract Signed Successfully!',
+      'successMsg': 'Thank you! Your signed document and details have been securely recorded.',
+      'doneButton': 'Done',
+    },
+    'Swahili': {
+      'pageIndicator': 'Ukurasa',
+      'of': 'ya',
+      'textHint': 'Andika hapa...',
+      'signatureTitle': 'Weka saini hapa',
+      'clearButton': 'Futa',
+      'prevButton': 'Ukurasa uliopita',
+      'nextButton': 'Inayofuata',
+      'submitButton': 'WASILISHA MKATABA',
+      'errIncomplete': 'Tafadhali jaza sehemu zote zinazohitajika kabla ya kuendelea.',
+      'successTitle': 'Mkataba Umesainiwa!',
+      'successMsg': 'Asante! Mkataba wako umehifadhiwa salama.',
+      'doneButton': 'Nimemaliza',
+    },
+    'French': {
+      'pageIndicator': 'Page',
+      'of': 'sur',
+      'textHint': 'Tapez ici...',
+      'signatureTitle': 'Signer ici',
+      'clearButton': 'Effacer',
+      'prevButton': 'Précédent',
+      'nextButton': 'Suivant',
+      'submitButton': 'SOUMETTRE LE CONTRAT',
+      'errIncomplete': 'Veuillez remplir tous les champs requis avant de continuer.',
+      'successTitle': 'Contrat Signé avec Succès !',
+      'successMsg': 'Merci ! Vos informations ont été enregistrées.',
+      'doneButton': 'Terminé',
+    },
+  };
+
+  String t(String key) {
+    final lang = widget.selectedLanguage;
+    return _localizedText[lang]?[key] ?? _localizedText['English']![key]!;
+  }
 
   @override
   void initState() {
@@ -108,10 +168,7 @@ class _DocumentSigningScreenState extends State<DocumentSigningScreen> {
   void _nextPage() {
     if (!_isCurrentPageComplete()) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please complete all required fields and signatures on this page before proceeding.'),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text(t('errIncomplete')), backgroundColor: Colors.red),
       );
       return;
     }
@@ -136,10 +193,7 @@ class _DocumentSigningScreenState extends State<DocumentSigningScreen> {
   Future<void> _submitContract() async {
     if (!_isCurrentPageComplete()) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please complete all required fields and signatures on this page before proceeding.'),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text(t('errIncomplete')), backgroundColor: Colors.red),
       );
       return;
     }
@@ -155,6 +209,11 @@ class _DocumentSigningScreenState extends State<DocumentSigningScreen> {
         'company': widget.company,
         'signerName': widget.signerName,
         'signerEmail': widget.signerEmail,
+        'signerAge': widget.signerAge,
+        'signerYear': widget.signerYear,
+        'signerMonthDate': widget.signerMonthDate,
+        'signerCountry': widget.signerCountry,
+        'signerAddress': widget.signerAddress,
         'selectedLanguage': widget.selectedLanguage,
         'status': 'Completed',
         'signedAt': FieldValue.serverTimestamp(),
@@ -166,15 +225,15 @@ class _DocumentSigningScreenState extends State<DocumentSigningScreen> {
         context: context,
         barrierDismissible: false,
         builder: (context) => AlertDialog(
-          title: const Text('Contract Signed Successfully!'),
-          content: const Text('Thank you! Your signed document and details have been securely recorded.'),
+          title: Text(t('successTitle')),
+          content: Text(t('successMsg')),
           actions: [
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF8B1E24)),
               onPressed: () {
                 Navigator.of(context).popUntil((route) => route.isFirst);
               },
-              child: const Text('Done', style: TextStyle(color: Colors.white)),
+              child: Text(t('doneButton'), style: const TextStyle(color: Colors.white)),
             ),
           ],
         ),
@@ -209,14 +268,6 @@ class _DocumentSigningScreenState extends State<DocumentSigningScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Fallback if pageUrls is empty so it doesn't crash
-    if (widget.pageUrls.isEmpty) {
-      return Scaffold(
-        appBar: AppBar(title: Text(widget.docTitle), backgroundColor: const Color(0xFF8B1E24)),
-        body: const Center(child: Text('No document pages available to display.')),
-      );
-    }
-
     final imageUrl = widget.pageUrls[_currentPageIndex];
     final isLastPage = _currentPageIndex == widget.pageUrls.length - 1;
     final pageFields = _taggedFields.where((f) => (f['page'] ?? 0) == _currentPageIndex).toList();
@@ -224,8 +275,9 @@ class _DocumentSigningScreenState extends State<DocumentSigningScreen> {
     return Scaffold(
       backgroundColor: Colors.grey[200],
       appBar: AppBar(
-        title: Text('${widget.docTitle} (Page ${_currentPageIndex + 1} of ${widget.pageUrls.length})'),
+        title: Text('${widget.docTitle} (${t('pageIndicator')} ${_currentPageIndex + 1} ${t('of')} ${widget.pageUrls.length})'),
         backgroundColor: const Color(0xFF8B1E24),
+        automaticallyImplyLeading: false,
       ),
       body: _isLoadingConfig || _isSubmitting
           ? const Center(child: CircularProgressIndicator(color: Color(0xFF8B1E24)))
@@ -278,7 +330,7 @@ class _DocumentSigningScreenState extends State<DocumentSigningScreen> {
                                   controller: _getTextController(i, i == 0 ? widget.signerName : ''),
                                   onChanged: (val) => setState(() {}),
                                   decoration: InputDecoration(
-                                    hintText: 'Type here...',
+                                    hintText: t('textHint'),
                                     filled: true,
                                     fillColor: Colors.yellow.shade100.withOpacity(0.9),
                                     isDense: true,
@@ -299,13 +351,13 @@ class _DocumentSigningScreenState extends State<DocumentSigningScreen> {
                                       Row(
                                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                         children: [
-                                          const Text('Sign here', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+                                          Text(t('signatureTitle'), style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
                                           InkWell(
                                             onTap: () {
                                               _getSigController(i).clear();
                                               setState(() {});
                                             },
-                                            child: const Text('Clear', style: TextStyle(fontSize: 10, color: Colors.red)),
+                                            child: Text(t('clearButton'), style: const TextStyle(fontSize: 10, color: Colors.red)),
                                           ),
                                         ],
                                       ),
@@ -338,7 +390,7 @@ class _DocumentSigningScreenState extends State<DocumentSigningScreen> {
                     OutlinedButton.icon(
                       onPressed: _prevPage,
                       icon: const Icon(Icons.arrow_back),
-                      label: const Text('Previous'),
+                      label: Text(t('prevButton')),
                     )
                   else
                     const SizedBox.shrink(),
@@ -350,7 +402,7 @@ class _DocumentSigningScreenState extends State<DocumentSigningScreen> {
                     ),
                     onPressed: _nextPage,
                     child: Text(
-                      isLastPage ? 'SUBMIT CONTRACT' : 'Next',
+                      isLastPage ? t('submitButton') : t('nextButton'),
                       style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
                   ),

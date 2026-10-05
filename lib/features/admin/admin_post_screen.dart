@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:vwc_app/models/company.dart';
@@ -19,7 +20,9 @@ class _AdminPostScreenState extends State<AdminPostScreen> {
   final TextEditingController _urlController = TextEditingController();
 
   Company _selectedCompany = CompanyRepository.companies.first;
-  File? _selectedImage;
+  File? _selectedImageFile;
+  Uint8List? _selectedImageBytes;
+  String? _selectedFilename;
   bool _isUploading = false;
 
   @override
@@ -31,10 +34,18 @@ class _AdminPostScreenState extends State<AdminPostScreen> {
   }
 
   Future<void> _pickImage() async {
-    final result = await FilePicker.platform.pickFiles(type: FileType.image);
-    if (result != null && result.files.single.path != null) {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      withData: true,
+    );
+
+    if (result != null && result.files.single.bytes != null) {
       setState(() {
-        _selectedImage = File(result.files.single.path!);
+        _selectedFilename = result.files.single.name;
+        _selectedImageBytes = result.files.single.bytes;
+        if (!kIsWeb && result.files.single.path != null) {
+          _selectedImageFile = File(result.files.single.path!);
+        }
       });
     }
   }
@@ -46,8 +57,13 @@ class _AdminPostScreenState extends State<AdminPostScreen> {
       String? imageUrl;
 
       // 1. Upload to Cloudinary if an image is attached
-      if (_selectedImage != null) {
-        imageUrl = await CloudinaryService.uploadImage(_selectedImage!);
+      if (_selectedImageBytes != null || _selectedImageFile != null) {
+        imageUrl = await CloudinaryService.uploadImage(
+          file: _selectedImageFile,
+          bytes: _selectedImageBytes,
+          filename: _selectedFilename,
+        );
+
         if (imageUrl == null) {
           setState(() => _isUploading = false);
           if (mounted) {
@@ -62,7 +78,7 @@ class _AdminPostScreenState extends State<AdminPostScreen> {
         }
       }
 
-      // 2. Create post with the Cloudinary image URL instead of local path
+      // 2. Create post with Cloudinary image URL
       final newPost = Post(
         id: 'post_${DateTime.now().millisecondsSinceEpoch}',
         companyId: _selectedCompany.id,
@@ -74,26 +90,40 @@ class _AdminPostScreenState extends State<AdminPostScreen> {
         timestamp: DateTime.now(),
       );
 
-      // 3. Notify feed
-      PostRepository.addPost(newPost);
+      try {
+        // 3. Save to Firestore
+        await PostRepository.addPost(newPost);
 
-      setState(() {
-        _isUploading = false;
-        _selectedImage = null;
-      });
+        setState(() {
+          _isUploading = false;
+          _selectedImageFile = null;
+          _selectedImageBytes = null;
+          _selectedFilename = null;
+        });
 
-      _titleController.clear();
-      _descriptionController.clear();
-      _urlController.clear();
+        _titleController.clear();
+        _descriptionController.clear();
+        _urlController.clear();
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Announcement published to ${_selectedCompany.name}!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        Navigator.pop(context);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Announcement published to ${_selectedCompany.name}!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          Navigator.pop(context);
+        }
+      } catch (e) {
+        setState(() => _isUploading = false);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to publish post: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
       }
     }
   }
@@ -156,7 +186,7 @@ class _AdminPostScreenState extends State<AdminPostScreen> {
               ),
               const SizedBox(height: 16),
 
-              // Image Attachment Section with Image Preview & Remove Option
+              // Image Attachment Section
               InkWell(
                 onTap: _pickImage,
                 child: Container(
@@ -165,7 +195,7 @@ class _AdminPostScreenState extends State<AdminPostScreen> {
                     border: Border.all(color: Colors.grey.shade400),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: _selectedImage == null
+                  child: _selectedImageBytes == null
                       ? const Column(
                     children: [
                       Icon(Icons.image, size: 36, color: Color(0xFF8B1E24)),
@@ -177,8 +207,8 @@ class _AdminPostScreenState extends State<AdminPostScreen> {
                     children: [
                       ClipRRect(
                         borderRadius: BorderRadius.circular(8),
-                        child: Image.file(
-                          _selectedImage!,
+                        child: Image.memory(
+                          _selectedImageBytes!,
                           height: 150,
                           width: double.infinity,
                           fit: BoxFit.cover,
@@ -189,13 +219,17 @@ class _AdminPostScreenState extends State<AdminPostScreen> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Text(
-                            'Selected: ${_selectedImage!.path.split('/').last}',
+                            'Selected: ${_selectedFilename ?? 'Image Attached'}',
                             style: const TextStyle(fontWeight: FontWeight.bold),
                           ),
                           IconButton(
                             icon: const Icon(Icons.close, color: Colors.red),
                             onPressed: () {
-                              setState(() => _selectedImage = null);
+                              setState(() {
+                                _selectedImageFile = null;
+                                _selectedImageBytes = null;
+                                _selectedFilename = null;
+                              });
                             },
                           ),
                         ],

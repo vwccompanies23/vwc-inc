@@ -1,94 +1,120 @@
-import 'dart:convert';
 import 'dart:io';
-import 'package:crypto/crypto.dart';
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'package:cloudinary_public/cloudinary_public.dart';
 
 class CloudinaryService {
-  static const String _cloudName = 'ddxsov37g';
-  static const String _uploadPreset = 'VWC INC';
+  static const String cloudName = 'ddxsov37g';
+  static const String uploadPreset = 'VWC INC';
 
-  // Required for signed contract deletion API calls
-  static const String _apiKey = 'YOUR_CLOUDINARY_API_KEY';
-  static const String _apiSecret = 'YOUR_CLOUDINARY_API_SECRET';
-
-  static final _cloudinary = CloudinaryPublic(_cloudName, _uploadPreset, cache: false);
-
-  /// Uploads an image file to Cloudinary and returns its public HTTPS URL.
-  static Future<String?> uploadImage(File file) async {
+  static Future<Map<String, String>?> uploadContract({
+    File? file,
+    Uint8List? bytes,
+    String? filename,
+  }) async {
     try {
-      CloudinaryResponse response = await _cloudinary.uploadFile(
-        CloudinaryFile.fromFile(
-          file.path,
-          resourceType: CloudinaryResourceType.Image,
-          folder: 'vwc_posts',
-        ),
-      );
-      return response.secureUrl;
+      final uri = Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/auto/upload');
+      final request = http.MultipartRequest('POST', uri);
+
+      request.fields['upload_preset'] = uploadPreset;
+
+      if (!kIsWeb && file != null && await file.exists()) {
+        request.files.add(await http.MultipartFile.fromPath('file', file.path));
+      } else if (bytes != null && bytes.isNotEmpty) {
+        request.files.add(http.MultipartFile.fromBytes(
+          'file',
+          bytes,
+          filename: filename ?? 'contract_document',
+        ));
+      } else {
+        debugPrint('Cloudinary Error: No valid file or bytes provided for upload.');
+        return null;
+      }
+
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map) {
+          final data = Map<String, dynamic>.from(decoded);
+          return {
+            'secure_url': data['secure_url']?.toString() ?? '',
+            'url': data['url']?.toString() ?? '',
+            'public_id': data['public_id']?.toString() ?? '',
+          };
+        }
+      } else {
+        debugPrint('Cloudinary Server Error [${response.statusCode}]:${response.body}');
+      }
+      return null;
     } catch (e) {
-      print('Cloudinary upload error: $e');
+      debugPrint('Cloudinary contract upload exception: $e');
       return null;
     }
   }
 
-  /// Uploads a contract file (PDF or Image) and returns URL + Public ID for tracking.
-  static Future<Map<String, String>?> uploadContract(File file) async {
+  static Future<String?> uploadImage({
+    File? file,
+    Uint8List? bytes,
+    String? filename,
+  }) async {
     try {
-      final isPdf = file.path.toLowerCase().endsWith('.pdf');
-      final resourceType = isPdf
-          ? CloudinaryResourceType.Raw
-          : CloudinaryResourceType.Image;
+      final uri = Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/image/upload');
+      final request = http.MultipartRequest('POST', uri);
 
-      CloudinaryResponse response = await _cloudinary.uploadFile(
-        CloudinaryFile.fromFile(
-          file.path,
-          resourceType: resourceType,
-          folder: 'vwc_contracts',
-        ),
-      );
+      request.fields['upload_preset'] = uploadPreset;
 
-      return {
-        'url': response.secureUrl,
-        'publicId': response.publicId,
-        'resourceType': isPdf ? 'raw' : 'image',
-      };
+      if (!kIsWeb && file != null && await file.exists()) {
+        request.files.add(await http.MultipartFile.fromPath('file', file.path));
+      } else if (bytes != null && bytes.isNotEmpty) {
+        request.files.add(http.MultipartFile.fromBytes(
+          'file',
+          bytes,
+          filename: filename ?? 'uploaded_image',
+        ));
+      } else {
+        return null;
+      }
+
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map) {
+          return decoded['secure_url']?.toString();
+        }
+      }
+      return null;
     } catch (e) {
-      print('Cloudinary contract upload error: $e');
+      debugPrint('Cloudinary image upload exception: $e');
       return null;
     }
   }
 
-  /// Deletes a contract permanently from Cloudinary servers using its publicId.
-  static Future<bool> deleteContract(String publicId, String resourceType) async {
+  static Future<bool> deleteContract(
+      String publicId, [
+        String? resourceType,
+      ]) async {
     try {
-      final timestamp = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      final signature = _generateSignature(publicId, timestamp.toString());
+      final type = resourceType ?? 'image';
+      final uri = Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/$type/destroy');
+      final response = await http.post(uri, body: {
+        'public_id': publicId,
+        'upload_preset': uploadPreset,
+      });
 
-      final url = Uri.parse(
-        'https://api.cloudinary.com/v1_1/$_cloudName/$resourceType/destroy',
-      );
-
-      final response = await http.post(
-        url,
-        body: {
-          'public_id': publicId,
-          'timestamp': timestamp.toString(),
-          'api_key': _apiKey,
-          'signature': signature,
-        },
-      );
-
-      final json = jsonDecode(response.body);
-      return json['result'] == 'ok';
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map) {
+          return decoded['result'] == 'ok';
+        }
+      }
+      return false;
     } catch (e) {
-      print('Cloudinary delete error: $e');
+      debugPrint('Cloudinary deletion exception: $e');
       return false;
     }
-  }
-
-  /// Generates SHA-1 signature required by Cloudinary Destroy API
-  static String _generateSignature(String publicId, String timestamp) {
-    final toSign = 'public_id=$publicId&timestamp=$timestamp$_apiSecret';
-    return sha1.convert(utf8.encode(toSign)).toString();
   }
 }

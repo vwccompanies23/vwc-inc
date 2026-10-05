@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:vwc_app/models/post.dart';
 import 'package:vwc_app/features/documents_signings/document_signing_screen.dart';
 
@@ -62,13 +63,63 @@ class NotificationsScreen extends StatelessWidget {
                       size: 16,
                       color: Color(0xFF8B1E24),
                     ),
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const DocumentSigningScreen(),
+                    onTap: () async {
+                      showDialog(
+                        context: context,
+                        barrierDismissible: false,
+                        builder: (context) => const Center(
+                          child: CircularProgressIndicator(
+                              color: Color(0xFF8B1E24)),
                         ),
                       );
+
+                      try {
+                        final snapshot = await FirebaseFirestore.instance
+                            .collection('contracts')
+                            .limit(1)
+                            .get();
+
+                        if (!context.mounted) return;
+                        Navigator.pop(context); // Dismiss loading dialog
+
+                        if (snapshot.docs.isNotEmpty) {
+                          final docData = snapshot.docs.first.data();
+                          final docId = snapshot.docs.first.id;
+
+                          if (!context.mounted) return;
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => DocumentSigningScreen(
+                                docId: docId,
+                                docTitle:
+                                docData['title'] ?? 'Company Contract',
+                                company: docData['company'] ?? 'VWC',
+                                pageUrls: List<String>.from(
+                                    docData['pageUrls'] ?? []),
+                                signerName: docData['signerName'] ?? 'Worker',
+                                signerEmail:
+                                docData['signerEmail'] ?? 'worker@vwc.com',
+                                selectedLanguage:
+                                docData['selectedLanguage'] ?? 'English',
+                              ),
+                            ),
+                          );
+                        } else {
+                          if (!context.mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                                content: Text(
+                                    'No pending contracts found to sign.')),
+                          );
+                        }
+                      } catch (e) {
+                        if (!context.mounted) return;
+                        Navigator.pop(context); // Dismiss loading dialog
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Error loading contract: $e')),
+                        );
+                      }
                     },
                   ),
                 ),
@@ -126,7 +177,6 @@ class NotificationsScreen extends StatelessWidget {
                         style: const TextStyle(color: Colors.grey, fontSize: 11),
                       ),
                       onTap: () {
-                        // Returns back to Home tab to view the post
                         Navigator.pop(context);
                       },
                     ),

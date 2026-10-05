@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vwc_app/features/home/home_screen.dart';
 import 'package:vwc_app/features/admin/admin_dashboard_screen.dart';
 
@@ -16,17 +17,51 @@ class _PasscodeScreenState extends State<PasscodeScreen> {
   static const String _workerPin = "2019";
   static const String _adminPin = "2026"; // Your private secret code
 
-  void _verifyPin() {
+  @override
+  void initState() {
+    super.initState();
+    _checkLoginState();
+  }
+
+  // Check if user was already logged in previously
+  Future<void> _checkLoginState() async {
+    final prefs = await SharedPreferences.getInstance();
+    final bool isAdminLoggedIn = prefs.getBool('admin_logged_in') ?? false;
+    final bool isWorkerLoggedIn = prefs.getBool('worker_logged_in') ?? false;
+
+    if (!mounted) return;
+
+    if (isAdminLoggedIn) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const AdminDashboardScreen()),
+      );
+    } else if (isWorkerLoggedIn) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const HomeScreen()),
+      );
+    }
+  }
+
+  Future<void> _verifyPin() async {
     final enteredPin = _pinController.text.trim();
+    final prefs = await SharedPreferences.getInstance();
 
     if (enteredPin == _adminPin) {
-      // Secret Admin Access -> Opens Admin Dashboard directly
+      // Save admin login state permanently
+      await prefs.setBool('admin_logged_in', true);
+
+      if (!mounted) return;
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => const AdminDashboardScreen()),
       );
     } else if (enteredPin == _workerPin) {
-      // Standard Employee Access -> Opens Employee Home
+      // Save worker login state permanently
+      await prefs.setBool('worker_logged_in', true);
+
+      if (!mounted) return;
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => const HomeScreen()),

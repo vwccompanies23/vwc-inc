@@ -1,6 +1,5 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class Post {
   final String id;
@@ -23,108 +22,87 @@ class Post {
     DateTime? timestamp,
   }) : timestamp = timestamp ?? DateTime.now();
 
-  // Convert Post instance to JSON map for local storage persistence
-  Map<String, dynamic> toJson() {
+  // Convert Post instance to Map for Firestore persistence
+  Map<String, dynamic> toMap() {
     return {
-      'id': id,
       'companyId': companyId,
       'companyName': companyName,
       'title': title,
       'description': description,
       'imagePath': imagePath,
       'externalUrl': externalUrl,
-      'timestamp': timestamp.toIso8601String(),
+      'timestamp': Timestamp.fromDate(timestamp),
     };
   }
 
-  // Construct Post instance from JSON map
-  factory Post.fromJson(Map<String, dynamic> json) {
+  // Construct Post instance from Firestore DocumentSnapshot
+  factory Post.fromFirestore(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
     return Post(
-      id: json['id'],
-      companyId: json['companyId'],
-      companyName: json['companyName'],
-      title: json['title'],
-      description: json['description'],
-      imagePath: json['imagePath'],
-      externalUrl: json['externalUrl'],
-      timestamp: DateTime.parse(json['timestamp']),
+      id: doc.id,
+      companyId: data['companyId'] ?? '',
+      companyName: data['companyName'] ?? '',
+      title: data['title'],
+      description: data['description'],
+      imagePath: data['imagePath'],
+      externalUrl: data['externalUrl'],
+      timestamp: (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now(),
     );
   }
 }
 
-// Global state holding community and company announcements with local storage persistence
+// Global state holding community and company announcements synchronized with Firestore
 class PostRepository {
-  static const String _storageKey = 'saved_vwc_posts';
-
-  // Default initial mock posts used on fresh app installs
-  static final List<Post> _defaultPosts = [
-    Post(
-      id: '1',
-      companyId: 'vwc',
-      companyName: 'VWC Group',
-      title: 'Safety Guidelines & Protocols',
-      description: 'Please review the updated site safety standards and operational instructions.',
-      externalUrl: 'https://youtube.com',
-      timestamp: DateTime.now().subtract(const Duration(hours: 2)),
-    ),
-    Post(
-      id: '2',
-      companyId: 'vwc',
-      companyName: 'VWC Group',
-      description: 'Quick announcement: All site offices will close early this Friday at 4 PM.',
-      timestamp: DateTime.now().subtract(const Duration(hours: 5)),
-    ),
-  ];
+  static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  static final CollectionReference _postsRef = _firestore.collection('posts');
 
   // ValueNotifier triggers automatic UI updates when posts are loaded, added, or deleted
-  static final ValueNotifier<List<Post>> postsNotifier = ValueNotifier<List<Post>>(_defaultPosts);
+  static final ValueNotifier<List<Post>> postsNotifier = ValueNotifier<List<Post>>([]);
 
   // Getter for convenience
   static List<Post> get posts => postsNotifier.value;
 
-  /// Loads saved posts from SharedPreferences on app launch
+  /// Loads posts from Firestore and listens for real-time updates across all devices
   static Future<void> loadPosts() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final String? jsonString = prefs.getString(_storageKey);
-
-      if (jsonString != null && jsonString.isNotEmpty) {
-        final List<dynamic> decodedList = jsonDecode(jsonString);
-        final List<Post> loadedPosts =
-        decodedList.map((item) => Post.fromJson(item)).toList();
+      _postsRef.orderBy('timestamp', descending: true).snapshots().listen((snapshot) {
+        final List<Post> loadedPosts = snapshot.docs
+            .map((doc) => Post.fromFirestore(doc))
+            .toList();
         postsNotifier.value = loadedPosts;
-      } else {
-        // First run: save defaults into storage
-        await _saveToStorage();
-      }
+      }, onError: (e) {
+        debugPrint('Error listening to Firestore posts stream: $e');
+      });
     } catch (e) {
-      debugPrint('Error loading posts from SharedPreferences: $e');
+      debugPrint('Error loading posts from Firestore: $e');
     }
   }
 
-  /// Writes current postsNotifier state to persistent local storage
-  static Future<void> _saveToStorage() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final String encoded =
-      jsonEncode(postsNotifier.value.map((p) => p.toJson()).toList());
-      await prefs.setString(_storageKey, encoded);
-    } catch (e) {
-      debugPrint('Error saving posts to SharedPreferences: $e');
-    }
-  }
-
-  /// Method to add a new post dynamically and save to disk
+  /// Method to add a new post dynamically directly to Firestore
   static Future<void> addPost(Post newPost) async {
-    postsNotifier.value = [newPost, ...postsNotifier.value];
-    await _saveToStorage();
+    try {
+      await _postsRef.add(newPost.toMap());
+    } catch (e) {
+      debugPrint('Error adding post to Firestore: $e');
+      rethrow;
+    }
   }
 
-  /// Method to delete a post dynamically and update disk storage
+  /// Method to delete a post permanently from Firestore
   static Future<void> deletePost(String postId) async {
-    final updatedList = List<Post>.from(postsNotifier.value)
-      ..removeWhere((p) => p.id == postId);
-    postsNotifier.value = updatedList;
-    await _saveToStorage();
+    try {
+      // Deletes the document directly from Firestore cloud storage
+      await _postsRef.doc(postId).delete();
+
+      // Update local notifier state immediately
+      final updatedList = List<Post>.from(postsNotifier.value)
+        ..removeWhere((p) => p.id == postId);
+      postsNotifier.value = updatedList;
+
+      debugPrint('Post $postId permanently deleted from everywhere.');
+    } catch (e) {
+      debugPrint('Error deleting post from Firestore: $e');
+      rethrow;
+    }
   }
 }

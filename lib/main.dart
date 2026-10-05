@@ -1,16 +1,25 @@
 import 'package:flutter/material.dart';
-import 'package:vwc_app/models/post.dart';
-import 'package:vwc_app/models/contract.dart';
-import 'package:vwc_app/features/home/home_screen.dart';
-import 'package:vwc_app/features/admin/admin_dashboard_screen.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:vwc_app/features/auth/passcode_screen.dart';
+import 'package:vwc_app/features/signing/signer_details_screen.dart';
+
+// If you have firebase_options.dart, make sure it's imported:
+// import 'firebase_options.dart';
 
 void main() async {
-  // Ensure Flutter binding is initialized before using SharedPreferences
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Load saved posts and contract documents from persistent local storage
-  await PostRepository.loadPosts();
-  await ContractRepository.loadContracts();
+  // Ensure we don't crash or hang if already initialized
+  if (Firebase.apps.isEmpty) {
+    try {
+      await Firebase.initializeApp(
+        // If you generated firebase_options.dart, uncomment below:
+        // options: DefaultFirebaseOptions.currentPlatform,
+      );
+    } catch (e) {
+      debugPrint('Firebase init error: $e');
+    }
+  }
 
   runApp(const VwcApp());
 }
@@ -21,162 +30,61 @@ class VwcApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'VWC App',
+      title: 'VWC INC',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         primarySwatch: Colors.red,
-        scaffoldBackgroundColor: const Color(0xFFF9F9F9),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.red,
-          foregroundColor: Colors.white,
-          elevation: 0,
-        ),
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.red,
-          primary: Colors.red,
-        ),
+        scaffoldBackgroundColor: Colors.white,
       ),
-      home: const PasscodeScreen(),
-    );
-  }
-}
+      onGenerateRoute: (settings) {
+        String routeName = settings.name ?? '';
 
-class PasscodeScreen extends StatefulWidget {
-  const PasscodeScreen({super.key});
+        // Handle web deep links including hash fragments
+        if (routeName == '/' || routeName.isEmpty) {
+          final uri = Uri.base;
+          if (uri.path.contains('/sign') || uri.fragment.contains('/sign')) {
+            routeName = uri.path.contains('/sign')
+                ? uri.path + (uri.query.isNotEmpty ? '?' + uri.query : '')
+                : uri.fragment;
+          }
+        }
 
-  @override
-  State<PasscodeScreen> createState() => _PasscodeScreenState();
-}
+        if (routeName.contains('/sign')) {
+          Uri uri;
+          if (routeName.startsWith('http')) {
+            uri = Uri.parse(routeName);
+          } else {
+            final cleanRoute = routeName.startsWith('/') ? routeName : '/$routeName';
+            uri = Uri.parse('https://dummy.com$cleanRoute');
+          }
 
-class _PasscodeScreenState extends State<PasscodeScreen> {
-  static const String _workerPin = "2019";
-  static const String _adminPin = "2026"; // Secret admin PIN
+          final queryParameters = uri.queryParameters.isNotEmpty
+              ? uri.queryParameters
+              : Uri.parse(routeName.replaceFirst('#', '?')).queryParameters;
 
-  String _enteredPin = "";
+          final docId = queryParameters['docId'] ?? '';
+          final docTitle = queryParameters['docTitle'] ?? 'Contract Document';
+          final company = queryParameters['company'] ?? 'VWC Operations';
+          final requiredCode = queryParameters['code'] ?? '';
+          final urlsString = queryParameters['urls'] ?? '';
+          final pageUrls = urlsString.isNotEmpty ? urlsString.split(',') : <String>[];
 
-  void _onKeyPress(String digit) {
-    if (_enteredPin.length < 4) {
-      setState(() {
-        _enteredPin += digit;
-      });
-      if (_enteredPin.length == 4) {
-        _verifyPin();
-      }
-    }
-  }
-
-  void _onDelete() {
-    if (_enteredPin.isNotEmpty) {
-      setState(() {
-        _enteredPin = _enteredPin.substring(0, _enteredPin.length - 1);
-      });
-    }
-  }
-
-  void _verifyPin() {
-    if (_enteredPin == _adminPin) {
-      // Direct access to Admin Dashboard
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const AdminDashboardScreen()),
-      );
-    } else if (_enteredPin == _workerPin) {
-      // Direct access to Worker Home
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const HomeScreen()),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Incorrect Secret Code'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      setState(() {
-        _enteredPin = "";
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        child: Column(
-          children: [
-            const SizedBox(height: 60),
-            const Icon(Icons.security, size: 70, color: Colors.red),
-            const SizedBox(height: 20),
-            const Text(
-              'VWC Access Control',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+          return MaterialPageRoute(
+            builder: (context) => SignerDetailsScreen(
+              docId: Uri.decodeComponent(docId),
+              docTitle: Uri.decodeComponent(docTitle),
+              company: Uri.decodeComponent(company),
+              requiredCode: requiredCode,
+              pageUrls: pageUrls.map((u) => Uri.decodeComponent(u)).toList(),
             ),
-            const SizedBox(height: 10),
-            const Text(
-              'Enter secret code to proceed',
-              style: TextStyle(color: Colors.grey),
-            ),
-            const SizedBox(height: 40),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: List.generate(4, (index) {
-                return Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 10),
-                  width: 20,
-                  height: 20,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: index < _enteredPin.length
-                        ? Colors.red
-                        : Colors.grey.shade300,
-                  ),
-                );
-              }),
-            ),
-            const Spacer(),
-            GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              padding: const EdgeInsets.symmetric(horizontal: 40),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3,
-                childAspectRatio: 1.5,
-              ),
-              itemCount: 12,
-              itemBuilder: (context, index) {
-                if (index == 9) return const SizedBox.shrink();
-                if (index == 10) return _buildKeypadButton('0');
-                if (index == 11) {
-                  return IconButton(
-                    icon: const Icon(Icons.backspace, color: Colors.red),
-                    onPressed: _onDelete,
-                  );
-                }
-                return _buildKeypadButton('${index + 1}');
-              },
-            ),
-            const SizedBox(height: 30),
-          ],
-        ),
-      ),
-    );
-  }
+          );
+        }
 
-  Widget _buildKeypadButton(String text) {
-    return TextButton(
-      onPressed: () => _onKeyPress(text),
-      style: TextButton.styleFrom(
-        shape: const CircleBorder(),
-      ),
-      child: Text(
-        text,
-        style: const TextStyle(
-          fontSize: 24,
-          fontWeight: FontWeight.bold,
-          color: Colors.black87,
-        ),
-      ),
+        // Default admin/worker passcode login entry
+        return MaterialPageRoute(
+          builder: (context) => const PasscodeScreen(),
+        );
+      },
     );
   }
 }
