@@ -278,24 +278,31 @@ class _HomeScreenState extends State<HomeScreen> {
                               final docData = snapshot.docs.first.data();
                               final docId = snapshot.docs.first.id;
 
+                              // Safely parse fields to prevent null check errors
+                              final String docTitle = docData['title'] ?? 'Company Contract';
+                              final String company = docData['company'] ?? 'VWC';
+
+                              final rawUrls = docData['pageUrls'];
+                              final List<String> pageUrls = rawUrls is List
+                                  ? rawUrls.map((e) => e.toString()).toList()
+                                  : [];
+
+                              final String signerName = docData['signerName'] ?? 'Worker';
+                              final String signerEmail = docData['signerEmail'] ?? 'worker@vwc.com';
+                              final String selectedLanguage = docData['selectedLanguage'] ?? 'English';
+
                               if (!context.mounted) return;
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
                                   builder: (context) => DocumentSigningScreen(
                                     docId: docId,
-                                    docTitle:
-                                    docData['title'] ?? 'Company Contract',
-                                    company: docData['company'] ?? 'VWC',
-                                    pageUrls: List<String>.from(
-                                        docData['pageUrls'] ?? []),
-                                    signerName:
-                                    docData['signerName'] ?? 'Worker',
-                                    signerEmail: docData['signerEmail'] ??
-                                        'worker@vwc.com',
-                                    selectedLanguage:
-                                    docData['selectedLanguage'] ??
-                                        'English',
+                                    docTitle: docTitle,
+                                    company: company,
+                                    pageUrls: pageUrls,
+                                    signerName: signerName,
+                                    signerEmail: signerEmail,
+                                    selectedLanguage: selectedLanguage,
                                   ),
                                 ),
                               );
